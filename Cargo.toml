@@ -11,4 +11,5 @@ futures-util = "0.3.31"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.49.0", features = ["full"] }
 tokio-util = { version = "0.7.18", features = ["io"] }
+tokio-utils = "0.1.2"
 toml = "0.9.11"
