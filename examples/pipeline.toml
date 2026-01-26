@@ -1,0 +1,42 @@
+[[pipeline.steps]]
+name = "System Check"
+image = "alpine:latest"
+command = "uname -a && sleep 1 && echo 'Environment ready.'"
+
+[[pipeline.steps]]
+name = "Multi-line Output"
+image = "alpine:latest"
+command = "seq 1 5"
+
+[[pipeline.steps]]
+name = "Heavy Build"
+image = "rust:latest"
+memory = "2gb"
+command = "cargo build --release"
+
+[[pipeline.steps]]
+name = "Quick Lint"
+image = "alpine:latest"
+memory = "64mb"
+command = "ls -R"
+
+[[pipeline.steps]]
+name = "Test Error Stream"
+image = "alpine:latest"
+command = "echo 'Starting...' && ls /non-existent-directory"
+
+[[pipeline.steps]]
+name = "Env Test"
+image = "alpine:latest"
+env = ["GREETING=Hello from Ciroach", "USER_ID=42"]
+command = "echo $GREETING && echo My ID is $USER_ID"
+
+[[pipeline.steps]]
+name = "Permission Test"
+image = "alpine:latest"
+command = "touch test_file.txt && ls -l test_file.txt"
+
+[[pipeline.steps]]
+name = "Final Report"
+image = "alpine:latest"
+command = "echo 'Build pipeline simulation finished!'"
