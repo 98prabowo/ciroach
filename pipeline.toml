@@ -1,0 +1,41 @@
+# ciroach pipeline.toml - UEM Stress Test
+
+# 1. Define the execution order
+stages_order = ["Initial Prep", "Build & Test", "Quality Gate", "Deploy"]
+
+# 2. Define the stages as a Map
+[stages."Initial Prep"]
+[stages."Initial Prep".steps.setup]
+image = "alpine:latest"
+command = "echo 'Setting up workspace...' && sleep 1"
+
+[stages."Build & Test"]
+# Example of your Matrix logic: ${version}
+[stages."Build & Test".steps.compile]
+image = "rust:1.80-slim"
+command = "echo 'Compiling for Rust ${{ version }}...' && sleep 3"
+matrix = { variable = "version", values = ["1.75", "1.80"] }
+
+[stages."Build & Test".steps.fmt]
+image = "rust:1.80-slim"
+command = "echo 'Format code...'"
+
+[stages."Build & Test".steps.lint]
+image = "rust:1.80-slim"
+command = "echo 'Linting code...'"
+needs = ["compile"]
+
+[stages."Quality Gate"]
+[stages."Quality Gate".steps.security-scan]
+image = "alpine:latest"
+command = "echo 'Scanning...'"
+memory = "128mb"
+
+[stages."Quality Gate".steps.flaky-test]
+image = "alpine:latest"
+command = "echo 'Risky test...' && exit 1"
+
+[stages.Deploy]
+[stages.Deploy.steps.push]
+image = "alpine:latest"
+command = "echo 'Deploying...'"

@@ -4,7 +4,10 @@ use anyhow::Ok;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{engine::DockerEngine, pipeline::{LogMessage, Step, StepResult}};
+use crate::{
+    engine::DockerEngine,
+    models::{LogMessage, Step, StepReport},
+};
 
 pub struct StepRunner {
     step: Step,
@@ -32,28 +35,30 @@ impl StepRunner {
         self,
         log_tx: mpsc::Sender<LogMessage>,
         token: CancellationToken,
-    ) -> StepResult {
+    ) -> StepReport {
         let timer = Instant::now();
+
+        let step_name = self.step.exploded_name.clone();
 
         let outcome = tokio::select! {
             _ = token.cancelled() => {
-                return StepResult::skipped(self.step.name.clone());
+                return StepReport::skipped(step_name);
             }
             res = self.execute(log_tx) => res
         };
 
-        if outcome.is_err() {
-            token.cancel();
-            StepResult::failed(self.step.name.clone(), timer.elapsed().as_secs())
+        if outcome.is_ok() {
+            StepReport::success(step_name, timer.elapsed().as_secs())
         } else {
-            StepResult::success(self.step.name.clone(), timer.elapsed().as_secs())
+            token.cancel();
+            StepReport::failed(step_name, timer.elapsed().as_secs())
         }
     }
 
     async fn execute(&self, log_tx: mpsc::Sender<LogMessage>) -> anyhow::Result<()> {
         log_tx
             .send(LogMessage {
-                step_name: self.step.name.clone(),
+                step_name: self.step.exploded_name.clone(),
                 line: format!("Preparing image: {}", self.step.image),
                 is_error: false,
             })
@@ -66,17 +71,43 @@ impl StepRunner {
             .await?;
 
         self.engine
-            .stream_logs(&id, &self.step.name, log_tx)
+            .stream_logs(&id, &self.step.exploded_name, log_tx.clone())
             .await?;
 
         let state = self.engine.get_exit_state(&id).await?;
 
         if state.oom_killed == Some(true) {
-            anyhow::bail!("System ran out of memory (Step: {})", self.step.name);
+            log_tx
+                .send(LogMessage {
+                    step_name: self.step.exploded_name.clone(),
+                    line: "System ran out of memory".to_string(),
+                    is_error: true,
+                })
+                .await
+                .ok();
+
+            anyhow::bail!(
+                "System ran out of memory (Step: {})",
+                self.step.exploded_name
+            );
         }
 
         if state.exit_code != Some(0) {
-            anyhow::bail!("Non-zero exit code (Step: {})", self.step.name);
+            let code = state.exit_code.unwrap_or(-1);
+
+            log_tx
+                .send(LogMessage {
+                    step_name: self.step.exploded_name.clone(),
+                    line: format!("Process exited with code {code}"),
+                    is_error: true,
+                })
+                .await
+                .ok();
+
+            anyhow::bail!(
+                "Non-zero exit code {code} (Step: {})",
+                self.step.exploded_name
+            );
         }
 
         Ok(())

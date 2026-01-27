@@ -1,8 +1,16 @@
-use bollard::{Docker, container::LogOutput, query_parameters::{CreateContainerOptionsBuilder, CreateImageOptionsBuilder, LogsOptionsBuilder, RemoveContainerOptionsBuilder}, secret::{ContainerCreateBody, ContainerState, HostConfig}};
+use bollard::{
+    Docker,
+    container::LogOutput,
+    query_parameters::{
+        CreateContainerOptionsBuilder, CreateImageOptionsBuilder, LogsOptionsBuilder,
+        RemoveContainerOptionsBuilder,
+    },
+    secret::{ContainerCreateBody, ContainerState, HostConfig},
+};
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
-use crate::pipeline::{LogMessage, Step};
+use crate::models::{LogMessage, Step};
 
 pub struct DockerEngine {
     client: Docker,
@@ -33,7 +41,7 @@ impl DockerEngine {
         cwd: impl Into<String>,
         user_mapping: impl Into<String>,
     ) -> anyhow::Result<String> {
-        let container_name = format!("ciroach-{}", step.name.replace(" ", "-"));
+        let container_name = format!("ciroach-{}", step.exploded_name.replace(" ", "-"));
 
         self.force_remove_container(&container_name).await.ok();
 
@@ -43,12 +51,10 @@ impl DockerEngine {
 
         let cmd = vec!["sh".to_string(), "-c".to_string(), step.command.clone()];
 
-        let memory_limit = step.memory_limit()?;
-
         let host_config = HostConfig {
             binds: Some(vec![format!("{}:/workspace", cwd.into())]),
-            memory: Some(memory_limit),
-            memory_swap: Some(memory_limit),
+            memory: Some(step.memory),
+            memory_swap: Some(step.memory),
             ..Default::default()
         };
 
@@ -113,7 +119,7 @@ impl DockerEngine {
     pub async fn get_exit_state(&self, id: &str) -> anyhow::Result<ContainerState> {
         let inspect = self.client.inspect_container(id, None).await?;
         let state = inspect.state.unwrap_or_default();
-        self.force_remove_container(id).await?;
+        self.force_remove_container(id).await.ok();
         Ok(state)
     }
 
