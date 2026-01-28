@@ -10,7 +10,7 @@ use bollard::{
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 
-use crate::models::{LogMessage, Step};
+use crate::{logger::LogMessage, models::Step};
 
 pub struct DockerEngine {
     client: Docker,
@@ -39,7 +39,7 @@ impl DockerEngine {
         &self,
         step: &Step,
         cwd: impl Into<String>,
-        user_mapping: impl Into<String>,
+        user: impl Into<String>,
     ) -> anyhow::Result<String> {
         let container_name = format!("ciroach-{}", step.exploded_name.replace(" ", "-"));
 
@@ -59,7 +59,7 @@ impl DockerEngine {
         };
 
         let container_config = ContainerCreateBody {
-            user: Some(user_mapping.into()),
+            user: Some(user.into()),
             env: step.env.clone(),
             cmd: Some(cmd),
             image: Some(step.image.clone()),
@@ -82,7 +82,7 @@ impl DockerEngine {
         &self,
         id: &str,
         step_name: &str,
-        log_tx: mpsc::Sender<LogMessage>,
+        log_tx: &mpsc::Sender<LogMessage>,
     ) -> anyhow::Result<()> {
         let logs_options = LogsOptionsBuilder::new()
             .stdout(true)
@@ -123,7 +123,7 @@ impl DockerEngine {
         Ok(state)
     }
 
-    async fn force_remove_container(&self, name: &str) -> anyhow::Result<()> {
+    pub async fn force_remove_container(&self, name: &str) -> anyhow::Result<()> {
         let remove_options = RemoveContainerOptionsBuilder::new().force(true).build();
 
         self.client

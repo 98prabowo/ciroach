@@ -52,11 +52,29 @@ impl StepReport {
         }
     }
 
+    pub fn cancelled(name: impl Into<String>, elapsed: u64) -> Self {
+        Self {
+            name: name.into(),
+            status: StepStatus::Cancelled,
+            elapsed,
+        }
+    }
+
     pub fn skipped(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             status: StepStatus::Skipped,
             elapsed: 0,
+        }
+    }
+
+    pub fn get_elasped_report(&self) -> String {
+        if self.elapsed < 1000 {
+            let elapsed = self.elapsed as f64 / 1000.0;
+            format!("{elapsed:.2}")
+        } else {
+            let elapsed = self.elapsed / 1000;
+            format!("{elapsed}")
         }
     }
 }
@@ -65,11 +83,6 @@ impl StepReport {
 pub enum StepStatus {
     Success,
     Failed,
+    Cancelled,
     Skipped,
-}
-
-pub struct LogMessage {
-    pub step_name: String,
-    pub line: String,
-    pub is_error: bool,
 }

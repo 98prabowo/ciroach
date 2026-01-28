@@ -21,9 +21,10 @@ impl ConsoleReporter {
                 let icon = match step.status {
                     StepStatus::Success => "✅",
                     StepStatus::Failed => "❌",
+                    StepStatus::Cancelled => "⏹️",
                     StepStatus::Skipped => "⏭️",
                 };
-                println!("  {} {}: {}s", icon, step.name, step.elapsed);
+                println!("  {} {}: {}s", icon, step.name, step.get_elasped_report());
             }
         }
     }

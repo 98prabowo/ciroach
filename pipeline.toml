@@ -1,41 +1,48 @@
-# ciroach pipeline.toml - UEM Stress Test
+# ciroach pipeline.toml - Engine Stress Test
 
-# 1. Define the execution order
-stages_order = ["Initial Prep", "Build & Test", "Quality Gate", "Deploy"]
+stages_order = ["Sanity", "Main Execution", "Finalize"]
 
-# 2. Define the stages as a Map
-[stages."Initial Prep"]
-[stages."Initial Prep".steps.setup]
+[stages.Sanity]
+[stages.Sanity.steps.warmup]
 image = "alpine:latest"
-command = "echo 'Setting up workspace...' && sleep 1"
+command = "echo 'Warming up...' && sleep 2"
 
-[stages."Build & Test"]
-# Example of your Matrix logic: ${version}
-[stages."Build & Test".steps.compile]
-image = "rust:1.80-slim"
-command = "echo 'Compiling for Rust ${{ version }}...' && sleep 3"
-matrix = { variable = "version", values = ["1.75", "1.80"] }
-
-[stages."Build & Test".steps.fmt]
-image = "rust:1.80-slim"
-command = "echo 'Format code...'"
-
-[stages."Build & Test".steps.lint]
-image = "rust:1.80-slim"
-command = "echo 'Linting code...'"
-needs = ["compile"]
-
-[stages."Quality Gate"]
-[stages."Quality Gate".steps.security-scan]
+[stages."Main Execution"]
+# 1. Tests Matrix + Parallelism
+[stages."Main Execution".steps.build]
 image = "alpine:latest"
-command = "echo 'Scanning...'"
-memory = "128mb"
+command = "echo 'Building for arch: ${{ arch }}' && sleep 2"
+matrix = { variable = "arch", values = ["x86", "arm64", "wasm"] }
 
-[stages."Quality Gate".steps.flaky-test]
+# 2. Tests Dependency DAG (Wait for all 3 matrix builds)
+[stages."Main Execution".steps.test-suite]
 image = "alpine:latest"
-command = "echo 'Risky test...' && exit 1"
+command = "echo 'Running tests on all builds...'"
+needs = ["build"]
 
-[stages.Deploy]
-[stages.Deploy.steps.push]
+# 3. Tests Retries (Will fail twice, then succeed)
+[stages."Main Execution".steps.flaky-service]
 image = "alpine:latest"
-command = "echo 'Deploying...'"
+command = "if [ ! -f /tmp/attempted ]; then touch /tmp/attempted && exit 1; else echo 'Recovered!'; fi"
+max_retries = 3
+
+# 4. Tests Timeouts & Zombie Cleanup
+# This will run for 10s but timeout at 2s.
+# Your engine should kill this container immediately.
+[stages."Main Execution".steps.long-task]
+image = "alpine:latest"
+command = "echo 'Starting long sleep...' && sleep 10"
+timeout = "2s"
+
+# 5. Tests Out of Memory (OOM) 
+# Assigning a tiny memory limit to trigger your OOM logic
+[stages."Main Execution".steps.memory-hog]
+image = "polinux/stress"
+command = "stress --vm 1 --vm-bytes 100M --timeout 5s"
+memory = "10mb"
+needs = ["test-suite"]
+
+[stages.Finalize]
+[stages.Finalize.steps.cleanup]
+image = "alpine:latest"
+command = "echo 'Cleaning up artifacts...'"

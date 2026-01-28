@@ -12,6 +12,7 @@ use crate::{
 };
 
 mod engine;
+mod logger;
 mod models;
 mod reporter;
 mod runner;

@@ -1,17 +1,15 @@
 use anyhow::Ok;
-use tokio::{fs::read_to_string, sync::mpsc};
+use tokio::fs::read_to_string;
 use tokio_util::sync::CancellationToken;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use crate::{
-    engine::DockerEngine,
-    models::{LogMessage, Pipeline, PipelineReport, RawPipeline, Stage, StageReport, StepReport},
-    runner::StageRunner,
+    engine::DockerEngine, logger::Logger, models::{Pipeline, PipelineReport, RawPipeline, Stage, StageReport, StepReport}, runner::StageRunner
 };
 
 pub struct PipelineRunner {
@@ -41,58 +39,43 @@ impl PipelineRunner {
 
     pub async fn run(self) -> anyhow::Result<PipelineReport> {
         let token = CancellationToken::new();
+        let logger = Logger::new(100);
         let mut stage_reports = Vec::new();
-        let mut log_store: HashMap<String, Vec<String>> = HashMap::new();
-
-        let (log_tx, mut log_rx) = mpsc::channel::<LogMessage>(100);
-
-        let log_handle = tokio::spawn(async move {
-            while let Some(log) = log_rx.recv().await {
-                let prefix = if log.is_error { "ERR" } else { "OUT" };
-                let line = format!("[{prefix}] [{}] {}", log.step_name, log.line.trim_end());
-                log_store.entry(log.step_name).or_default().push(line);
-            }
-            log_store
-        });
 
         for stage in self.pipeline.stages.iter() {
-            println!("🚀 Starting Stage: {}", stage.name);
-
             if token.is_cancelled() {
-                let skipped_steps = stage
-                    .steps
-                    .iter()
-                    .map(|s| StepReport::skipped(&s.exploded_name))
-                    .collect();
-
-                stage_reports.push(StageReport {
-                    step_reports: skipped_steps,
-                });
+                stage_reports.push(self.skip_stage(stage));
                 continue;
             }
 
+            println!("🚀 Starting Stage: {}", stage.name);
             self.pre_pull_images(stage).await?;
 
-            let stage_report = StageRunner::new(stage, self.engine.clone(), &self.cwd, &self.user)
-                .run(log_tx.clone(), token.clone())
-                .await?;
+            let runner = StageRunner::new(stage, self.engine.clone(), &self.cwd, &self.user);
+            let report = runner.run(logger.tx(), token.clone()).await?;
 
-            stage_reports.push(stage_report.clone());
+            stage_reports.push(report.clone());
 
-            if !stage_report.is_success() || token.is_cancelled() {
+            if !report.is_success() {
                 token.cancel();
                 println!("🛑 Pipeline halted due to error in stage '{}'", stage.name);
             }
         }
 
-        drop(log_tx);
-
-        let final_logs = log_handle.await?;
+        let final_logs = logger.finish().await?;
 
         Ok(PipelineReport {
             stage_reports,
             logs: final_logs,
         })
+    }
+
+    fn skip_stage(&self, stage: &Stage) -> StageReport {
+        StageReport {
+            step_reports: stage.steps.iter()
+                .map(|step| StepReport::skipped(&step.exploded_name))
+                .collect(),
+        }
     }
 
     async fn pre_pull_images(&self, stage: &Stage) -> anyhow::Result<()> {

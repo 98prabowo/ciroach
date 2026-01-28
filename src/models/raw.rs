@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
+use anyhow::Ok;
 use regex::{Regex, escape};
 use serde::Deserialize;
 
@@ -47,6 +48,8 @@ impl RawPipeline {
                             needs: step_cfg.needs.clone().unwrap_or_default(),
                             env: step_cfg.env.clone(),
                             command: regex.replace_all(&step_cfg.command, val).to_string(),
+                            max_retries: step_cfg.retries.unwrap_or(0),
+                            timeout: step_cfg.timeout()?,
                         });
                     }
                 } else {
@@ -58,6 +61,8 @@ impl RawPipeline {
                         needs: step_cfg.needs.clone().unwrap_or_default(),
                         env: step_cfg.env.clone(),
                         command: step_cfg.command.clone(),
+                        max_retries: step_cfg.retries.unwrap_or(0),
+                        timeout: step_cfg.timeout()?,
                     });
                 }
             }
@@ -91,6 +96,8 @@ pub struct RawStep {
     pub needs: Option<Vec<String>>,
     pub env: Option<Vec<String>>,
     pub matrix: Option<MatrixConfig>,
+    pub retries: Option<u32>,
+    pub timeout: Option<String>,
 }
 
 impl RawStep {
@@ -115,6 +122,32 @@ impl RawStep {
         })?;
 
         Ok(value * multiplier)
+    }
+
+    pub fn timeout(&self) -> anyhow::Result<std::time::Duration> {
+        let time = match &self.timeout {
+            Some(raw) => raw.to_lowercase(),
+            None => return Ok(Duration::from_secs(60 * 60)),
+        };
+
+        let (digits, multiplier) = if time.ends_with("h") {
+            (time.replace("h", ""), 60 * 60)
+        } else if time.ends_with("m") {
+            (time.replace("m", ""), 60)
+        } else if time.ends_with("s") {
+            (time.replace("s", ""), 1)
+        } else {
+            (time, 1)
+        };
+
+        let value = digits.trim().parse::<u64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid timeout format: '{}'. Use '1h', '30m', or '5s'",
+                digits
+            )
+        })?;
+
+        Ok(Duration::from_secs(value * multiplier))
     }
 }
 

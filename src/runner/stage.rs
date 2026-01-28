@@ -5,9 +5,17 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     engine::DockerEngine,
-    models::{LogMessage, Stage, StageReport, Step, StepReport},
+    logger::LogMessage,
+    models::{Stage, StageReport, Step, StepReport},
     runner::StepRunner,
 };
+
+#[derive(Debug, Default)]
+struct StageState {
+    pub started: HashSet<String>,
+    pub completed: HashSet<String>,
+    pub reports: Vec<StepReport>,
+}
 
 pub struct StageRunner<'s> {
     stage: &'s Stage,
@@ -36,79 +44,70 @@ impl<'s> StageRunner<'s> {
         log_tx: mpsc::Sender<LogMessage>,
         token: CancellationToken,
     ) -> anyhow::Result<StageReport> {
-        let mut step_reports = Vec::new();
-        let mut completed_step_names = HashSet::new();
-        let mut started_step_names = HashSet::new();
-
+        let mut state = StageState::default();
         let (status_tx, mut status_rx) = mpsc::channel::<StepReport>(100);
         let total_steps = self.stage.steps.len();
 
-        while completed_step_names.len() < total_steps {
+        loop {
             if !token.is_cancelled() {
-                for step in self.stage.steps.iter() {
-                    if started_step_names.contains(&step.exploded_name) {
-                        continue;
-                    }
+                self.dispatch_ready_steps(&mut state, &log_tx, &status_tx, &token);
+            }
 
-                    if self.can_start(step, &completed_step_names) {
-                        started_step_names.insert(step.exploded_name.clone());
+            if state.started.len() == state.completed.len() {
+                // If the token was cancelled, and we have received reports for everything we started,
+                // we can safely stop the loop even if some steps in the stage never ran.
+                if token.is_cancelled() || state.started.len() == total_steps {
+                    break;
+                }
 
-                        let runner = StepRunner::new(
-                            step.clone(),
-                            self.engine.clone(),
-                            &self.cwd,
-                            &self.user,
-                        );
-                        let log_tx_inner = log_tx.clone();
-                        let status_tx_inner = status_tx.clone();
-                        let token_inner = token.clone();
-
-                        tokio::spawn(async move {
-                            let result = runner.run(log_tx_inner, token_inner).await;
-                            status_tx_inner.send(result).await.ok();
-                        });
-                    }
+                // If we aren't cancelled, but nothing is running and we aren't finished, it's a deadlock.
+                if !token.is_cancelled() {
+                    anyhow::bail!(
+                        "Deadlock detected in stage '{}'! Check your 'needs' configuration.",
+                        self.stage.name
+                    );
                 }
             }
 
-            if started_step_names.len() > completed_step_names.len()
-                && let Some(report) = status_rx.recv().await
-            {
-                completed_step_names.insert(report.name.clone());
-                step_reports.push(report);
+            if let Some(rep) = status_rx.recv().await {
+                state.completed.insert(rep.name.clone());
+                state.reports.push(rep);
+            } else {
+                break;
+            }
+        }
 
-                // Immediately check if we can start more steps or if we need to drain
+        Ok(self.finalize_report(state))
+    }
+
+    fn dispatch_ready_steps(
+        &self,
+        state: &mut StageState,
+        log_tx: &mpsc::Sender<LogMessage>,
+        status_tx: &mpsc::Sender<StepReport>,
+        token: &CancellationToken,
+    ) {
+        for step in self.stage.steps.iter() {
+            if state.started.contains(&step.exploded_name) {
                 continue;
             }
 
-            // If the token was cancelled, and we have received reports for everything we started,
-            // we can safely stop the loop even if some steps in the stage never ran.
-            if token.is_cancelled() && started_step_names.len() == completed_step_names.len() {
-                break;
-            }
+            if self.can_start(step, &state.completed) {
+                state.started.insert(step.exploded_name.clone());
 
-            // If we aren't cancelled, but nothing is running and we aren't finished, it's a deadlock.
-            if !token.is_cancelled() && started_step_names.len() == completed_step_names.len() {
-                anyhow::bail!(
-                    "Deadlock detected in stage '{}'! Check your 'needs' configuration.",
-                    self.stage.name
-                );
-            }
-        }
+                let runner =
+                    StepRunner::new(step.clone(), self.engine.clone(), &self.cwd, &self.user);
 
-        for started in started_step_names.iter() {
-            if !completed_step_names.contains(started) {
-                step_reports.push(StepReport::failed(started, 0));
+                let log_tx_inner = log_tx.clone();
+                let status_tx_inner = status_tx.clone();
+                let token_inner = token.clone();
+
+                tokio::spawn(async move {
+                    let result = runner.run(log_tx_inner, token_inner).await;
+                    status_tx_inner.send(result).await.ok();
+                });
             }
         }
-
-        for step in self.stage.steps.iter() {
-            if !started_step_names.contains(&step.exploded_name) {
-                step_reports.push(StepReport::skipped(&step.exploded_name));
-            }
-        }
-
-        Ok(StageReport { step_reports })
     }
 
     fn can_start(&self, step: &Step, completed: &HashSet<String>) -> bool {
@@ -119,5 +118,27 @@ impl<'s> StageRunner<'s> {
                 .filter(|s| &s.name == needed_base_name)
                 .all(|s| completed.contains(&s.exploded_name))
         })
+    }
+
+    fn finalize_report(&self, mut state: StageState) -> StageReport {
+        let finished_names: HashSet<String> = state
+            .reports
+            .iter()
+            .map(|report| report.name.clone())
+            .collect();
+
+        for step in self.stage.steps.iter() {
+            if !finished_names.contains(&step.exploded_name) {
+                if state.started.contains(&step.exploded_name) {
+                    state.reports.push(StepReport::failed(&step.exploded_name, 0));
+                } else {
+                    state.reports.push(StepReport::skipped(&step.exploded_name));
+                }
+            }
+        }
+
+        StageReport {
+            step_reports: state.reports,
+        }
     }
 }

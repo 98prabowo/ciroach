@@ -17,7 +17,9 @@ impl FileReporter {
                 let status_str = format!("{:?}", step.status);
                 buffer.push_str(&format!(
                     "Step: {} | Status {} | Duration {}s\n",
-                    step.name, status_str, step.elapsed
+                    step.name,
+                    status_str,
+                    step.get_elasped_report(),
                 ));
             }
         }

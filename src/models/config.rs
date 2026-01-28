@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -20,4 +22,6 @@ pub struct Step {
     pub needs: Vec<String>,
     pub env: Option<Vec<String>>,
     pub command: String,
+    pub max_retries: u32,
+    pub timeout: Duration,
 }
