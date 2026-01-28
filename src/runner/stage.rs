@@ -130,7 +130,9 @@ impl<'s> StageRunner<'s> {
         for step in self.stage.steps.iter() {
             if !finished_names.contains(&step.exploded_name) {
                 if state.started.contains(&step.exploded_name) {
-                    state.reports.push(StepReport::failed(&step.exploded_name, 0));
+                    state
+                        .reports
+                        .push(StepReport::failed(&step.exploded_name, 0));
                 } else {
                     state.reports.push(StepReport::skipped(&step.exploded_name));
                 }

@@ -23,7 +23,7 @@ needs = ["build"]
 # 3. Tests Retries (Will fail twice, then succeed)
 [stages."Main Execution".steps.flaky-service]
 image = "alpine:latest"
-command = "if [ ! -f /tmp/attempted ]; then touch /tmp/attempted && exit 1; else echo 'Recovered!'; fi"
+command = "if [ $(( $RANDOM % 2 )) -eq 0 ]; then echo 'Random failure!'; exit 1; else echo 'Lucky success!'; fi"
 max_retries = 3
 
 # 4. Tests Timeouts & Zombie Cleanup

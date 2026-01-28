@@ -23,8 +23,10 @@ impl DockerEngine {
         })
     }
 
-    pub async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
-        let image_options = CreateImageOptionsBuilder::new().from_image(image).build();
+    pub async fn pull_image(&self, image: impl Into<String>) -> anyhow::Result<()> {
+        let image_options = CreateImageOptionsBuilder::new()
+            .from_image(&image.into())
+            .build();
 
         let mut pull_stream = self.client.create_image(Some(image_options), None, None);
 

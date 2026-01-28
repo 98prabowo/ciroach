@@ -1,4 +1,5 @@
 use anyhow::Ok;
+use futures_util::future::try_join_all;
 use tokio::fs::read_to_string;
 use tokio_util::sync::CancellationToken;
 
@@ -6,10 +7,14 @@ use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Instant,
 };
 
 use crate::{
-    engine::DockerEngine, logger::Logger, models::{Pipeline, PipelineReport, RawPipeline, Stage, StageReport, StepReport}, runner::StageRunner
+    engine::DockerEngine,
+    logger::Logger,
+    models::{Pipeline, PipelineReport, RawPipeline, Stage, StageReport, StepReport},
+    runner::StageRunner,
 };
 
 pub struct PipelineRunner {
@@ -72,7 +77,9 @@ impl PipelineRunner {
 
     fn skip_stage(&self, stage: &Stage) -> StageReport {
         StageReport {
-            step_reports: stage.steps.iter()
+            step_reports: stage
+                .steps
+                .iter()
                 .map(|step| StepReport::skipped(&step.exploded_name))
                 .collect(),
         }
@@ -82,10 +89,24 @@ impl PipelineRunner {
         let unique_images: HashSet<String> =
             stage.steps.iter().map(|step| step.image.clone()).collect();
 
-        for img in unique_images {
-            println!("🚚 Pre-pulling image: {}", img);
-            self.engine.pull_image(&img).await?;
+        if unique_images.is_empty() {
+            return Ok(());
         }
+
+        let start = Instant::now();
+
+        let pull_tasks = unique_images.iter().map(|img| {
+            println!("🚚 Pre-pulling image: {}", img);
+            self.engine.pull_image(img)
+        });
+
+        try_join_all(pull_tasks).await?;
+
+        println!(
+            "📥 All images pulled in {:.2}s (Total images: {})",
+            start.elapsed().as_secs_f64(),
+            unique_images.len()
+        );
 
         Ok(())
     }

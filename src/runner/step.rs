@@ -185,10 +185,7 @@ impl StepRunner {
         .ok();
     }
 
-    async fn log_pull_image(
-        &self,
-        tx: &mpsc::Sender<LogMessage>,
-    ) {
+    async fn log_pull_image(&self, tx: &mpsc::Sender<LogMessage>) {
         tx.send(LogMessage {
             step_name: self.step.exploded_name.clone(),
             line: format!("Preparing image: {}", self.step.image),
