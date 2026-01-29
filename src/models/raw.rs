@@ -48,7 +48,7 @@ impl RawPipeline {
                             needs: step_cfg.needs.clone().unwrap_or_default(),
                             env: step_cfg.env.clone(),
                             command: regex.replace_all(&step_cfg.command, val).to_string(),
-                            max_retries: step_cfg.retries.unwrap_or(0),
+                            max_retries: step_cfg.max_retries.unwrap_or(0),
                             timeout: step_cfg.timeout()?,
                         });
                     }
@@ -61,7 +61,7 @@ impl RawPipeline {
                         needs: step_cfg.needs.clone().unwrap_or_default(),
                         env: step_cfg.env.clone(),
                         command: step_cfg.command.clone(),
-                        max_retries: step_cfg.retries.unwrap_or(0),
+                        max_retries: step_cfg.max_retries.unwrap_or(0),
                         timeout: step_cfg.timeout()?,
                     });
                 }
@@ -96,7 +96,7 @@ pub struct RawStep {
     pub needs: Option<Vec<String>>,
     pub env: Option<Vec<String>>,
     pub matrix: Option<MatrixConfig>,
-    pub retries: Option<u32>,
+    pub max_retries: Option<u32>,
     pub timeout: Option<String>,
 }
 
