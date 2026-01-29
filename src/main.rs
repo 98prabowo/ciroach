@@ -5,10 +5,10 @@ use std::os::unix::fs::MetadataExt;
 use anyhow::Ok;
 use chrono::Local;
 use tokio::fs::create_dir_all;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
-    reporter::{ConsoleReporter, FileReporter},
-    runner::PipelineRunner,
+    models::Pipeline, reporter::{ConsoleReporter, FileReporter}, runner::PipelineRunner
 };
 
 mod engine;
@@ -19,8 +19,6 @@ mod runner;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let pipeline_path = "pipeline.toml";
-
     let cwd = env::current_dir()?;
 
     #[cfg(unix)]
@@ -31,8 +29,20 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(unix))]
     let user = "0:0".to_string();
 
-    let runner = PipelineRunner::new(pipeline_path, user, cwd).await?;
-    let report = runner.run().await?;
+    let pipeline = Pipeline::new("ciroach.toml").await?;
+    let runner = PipelineRunner::new(pipeline, user, cwd).await?;
+
+    let token = CancellationToken::new();
+    let signal_token = token.clone();
+
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            println!("\n🛑 [SIGINT] Graceful shutdown initiated...");
+            signal_token.cancel();
+        }
+    });
+
+    let report = runner.run(token).await?;
 
     ConsoleReporter::report(&report);
 

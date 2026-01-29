@@ -1,10 +1,24 @@
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use serde::Deserialize;
+use tokio::fs::read_to_string;
+
+use crate::models::RawPipeline;
 
 #[derive(Debug, Deserialize)]
 pub struct Pipeline {
     pub stages: Vec<Stage>,
+}
+
+impl Pipeline {
+    pub async fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let config = read_to_string(path).await?;
+        let raw: RawPipeline = toml::from_str(&config)?;
+        let compiled = raw.compile()?;
+        Ok(Self {
+            stages: compiled.stages,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -92,7 +92,7 @@ impl StepRunner {
         let container_id = Arc::new(Mutex::new(None));
         let exec_id = Arc::clone(&container_id);
 
-        let exec_fut = self.execute(log_tx, exec_id);
+        let exec_fut = self.execute(log_tx, exec_id, token);
         let timeout_fut = timeout(self.step.timeout, exec_fut);
 
         tokio::select! {
@@ -115,6 +115,7 @@ impl StepRunner {
         &self,
         log_tx: &mpsc::Sender<LogMessage>,
         id_tracker: Arc<Mutex<Option<String>>>,
+        token: &CancellationToken,
     ) -> anyhow::Result<()> {
         let id = self
             .engine
@@ -124,7 +125,7 @@ impl StepRunner {
         Self::save_running_container_id(id_tracker, &id).await;
 
         self.engine
-            .stream_logs(&id, &self.step.exploded_name, log_tx)
+            .stream_logs(&id, &self.step.exploded_name, log_tx, token)
             .await?;
 
         let state = self.engine.get_exit_state(&id).await?;

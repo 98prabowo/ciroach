@@ -1,3 +1,4 @@
+use anyhow::Ok;
 use bollard::{
     Docker,
     container::LogOutput,
@@ -9,6 +10,7 @@ use bollard::{
 };
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::{logger::LogMessage, models::Step};
 
@@ -85,6 +87,7 @@ impl DockerEngine {
         id: &str,
         step_name: &str,
         log_tx: &mpsc::Sender<LogMessage>,
+        token: &CancellationToken,
     ) -> anyhow::Result<()> {
         let logs_options = LogsOptionsBuilder::new()
             .stdout(true)
@@ -94,25 +97,40 @@ impl DockerEngine {
 
         let mut stream = self.client.logs(id, Some(logs_options));
 
-        while let Some(log) = stream.next().await {
-            let (line, is_error) = match log? {
-                LogOutput::StdOut { message } => {
-                    (String::from_utf8_lossy(&message).to_string(), false)
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    return Ok(());
                 }
-                LogOutput::StdErr { message } => {
-                    (String::from_utf8_lossy(&message).to_string(), true)
-                }
-                _ => continue,
-            };
 
-            log_tx
-                .send(LogMessage {
-                    step_name: step_name.to_string(),
-                    line,
-                    is_error,
-                })
-                .await
-                .ok();
+                log = stream.next() => {
+                    let log_item = match log {
+                        Some(result) => result?,
+                        None => break,
+                    };
+
+                    let (line, is_error) = match log_item {
+                        LogOutput::StdOut { message } => {
+                            (String::from_utf8_lossy(&message).to_string(), false)
+                        }
+                        LogOutput::StdErr { message } => {
+                            (String::from_utf8_lossy(&message).to_string(), true)
+                        }
+                        _ => continue,
+                    };
+
+                    if !line.is_empty() {
+                        log_tx
+                            .send(LogMessage {
+                                step_name: step_name.to_string(),
+                                line,
+                                is_error,
+                            })
+                            .await
+                            .ok();
+                    }
+                }
+            }
         }
 
         Ok(())

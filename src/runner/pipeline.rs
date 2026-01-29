@@ -1,11 +1,10 @@
 use anyhow::Ok;
 use futures_util::future::try_join_all;
-use tokio::fs::read_to_string;
 use tokio_util::sync::CancellationToken;
 
 use std::{
     collections::HashSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::Instant,
 };
@@ -13,7 +12,7 @@ use std::{
 use crate::{
     engine::DockerEngine,
     logger::Logger,
-    models::{Pipeline, PipelineReport, RawPipeline, Stage, StageReport, StepReport},
+    models::{Pipeline, PipelineReport, Stage, StageReport, StepReport},
     runner::StageRunner,
 };
 
@@ -26,24 +25,21 @@ pub struct PipelineRunner {
 
 impl PipelineRunner {
     pub async fn new(
-        pipeline_path: impl AsRef<Path>,
+        pipeline: Pipeline,
         user: impl Into<String>,
         cwd: PathBuf,
     ) -> anyhow::Result<Self> {
         let engine = Arc::new(DockerEngine::new()?);
-        let config = read_to_string(pipeline_path).await?;
-        let raw: RawPipeline = toml::from_str(&config)?;
 
         Ok(Self {
-            pipeline: raw.compile()?,
+            pipeline,
             engine,
             cwd: cwd.to_string_lossy().to_string(),
             user: user.into(),
         })
     }
 
-    pub async fn run(self) -> anyhow::Result<PipelineReport> {
-        let token = CancellationToken::new();
+    pub async fn run(self, token: CancellationToken) -> anyhow::Result<PipelineReport> {
         let logger = Logger::new(100);
         let mut stage_reports = Vec::new();
 
