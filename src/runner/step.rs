@@ -6,7 +6,7 @@ use std::{
 use anyhow::Ok;
 use tokio::{
     sync::{Mutex, mpsc},
-    time::timeout,
+    time::{sleep, timeout},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -61,8 +61,20 @@ impl StepRunner {
                 std::result::Result::Err(err) => {
                     if attempts < self.step.max_retries && !token.is_cancelled() {
                         attempts += 1;
+
                         self.log_retry(&log_tx, attempts, max_retries, &err).await;
-                        continue;
+
+                        let throttle_secs = 2u64.pow(attempts);
+                        let throttle_duration = Duration::from_secs(throttle_secs);
+
+                        tokio::select! {
+                            _ = sleep(throttle_duration) => {
+                                continue;
+                            }
+                            _ = token.cancelled() => {
+                                return StepReport::cancelled(step_name, timer.elapsed().as_millis() as u64);
+                            }
+                        }
                     }
 
                     token.cancel();
@@ -104,8 +116,6 @@ impl StepRunner {
         log_tx: &mpsc::Sender<LogMessage>,
         id_tracker: Arc<Mutex<Option<String>>>,
     ) -> anyhow::Result<()> {
-        self.log_pull_image(log_tx).await;
-
         let id = self
             .engine
             .run_container(&self.step, &self.cwd, &self.user)
@@ -180,16 +190,6 @@ impl StepRunner {
                 attempts, max_retries, err
             ),
             is_error: true,
-        })
-        .await
-        .ok();
-    }
-
-    async fn log_pull_image(&self, tx: &mpsc::Sender<LogMessage>) {
-        tx.send(LogMessage {
-            step_name: self.step.exploded_name.clone(),
-            line: format!("Preparing image: {}", self.step.image),
-            is_error: false,
         })
         .await
         .ok();
