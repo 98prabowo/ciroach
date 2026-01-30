@@ -8,7 +8,9 @@ use tokio::fs::create_dir_all;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    models::Pipeline, reporter::{ConsoleReporter, FileReporter}, runner::PipelineRunner
+    models::Pipeline,
+    reporter::{ConsoleReporter, FileReporter},
+    runner::PipelineRunner,
 };
 
 mod engine;
@@ -16,6 +18,7 @@ mod logger;
 mod models;
 mod reporter;
 mod runner;
+mod ui;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

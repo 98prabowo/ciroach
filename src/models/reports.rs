@@ -32,30 +32,34 @@ impl StageReport {
 pub struct StepReport {
     pub name: String,
     pub status: StepStatus,
+    pub retries: u32,
     pub elapsed: u64,
 }
 
 impl StepReport {
-    pub fn success(name: impl Into<String>, elapsed: u64) -> Self {
+    pub fn success(name: impl Into<String>, retries: u32, elapsed: u64) -> Self {
         Self {
             name: name.into(),
             status: StepStatus::Success,
+            retries,
             elapsed,
         }
     }
 
-    pub fn failed(name: impl Into<String>, elapsed: u64) -> Self {
+    pub fn failed(name: impl Into<String>, retries: u32, elapsed: u64) -> Self {
         Self {
             name: name.into(),
             status: StepStatus::Failed,
+            retries,
             elapsed,
         }
     }
 
-    pub fn cancelled(name: impl Into<String>, elapsed: u64) -> Self {
+    pub fn cancelled(name: impl Into<String>, retries: u32, elapsed: u64) -> Self {
         Self {
             name: name.into(),
             status: StepStatus::Cancelled,
+            retries,
             elapsed,
         }
     }
@@ -64,6 +68,7 @@ impl StepReport {
         Self {
             name: name.into(),
             status: StepStatus::Skipped,
+            retries: 0,
             elapsed: 0,
         }
     }
@@ -72,6 +77,8 @@ impl StepReport {
         if self.elapsed < 1000 {
             let elapsed = self.elapsed as f64 / 1000.0;
             format!("{elapsed:.2}")
+        } else if self.elapsed == 0 {
+            "0".to_string()
         } else {
             let elapsed = self.elapsed / 1000;
             format!("{elapsed}")

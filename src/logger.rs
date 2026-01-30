@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 
+use colored::Colorize;
 use tokio::{sync::mpsc, task::JoinHandle};
-
-pub struct LogMessage {
-    pub step_name: String,
-    pub line: String,
-    pub is_error: bool,
-}
 
 pub struct Logger {
     tx: mpsc::Sender<LogMessage>,
@@ -19,8 +14,7 @@ impl Logger {
         let handle = tokio::spawn(async move {
             let mut store: HashMap<String, Vec<String>> = HashMap::new();
             while let Some(log) = rx.recv().await {
-                let prefix = if log.is_error { "ERR" } else { "OUT" };
-                let line = format!("[{}] [{}] {}", prefix, log.step_name, log.line.trim_end());
+                let line = log.terminal_format();
                 store.entry(log.step_name).or_default().push(line);
             }
             store
@@ -38,5 +32,23 @@ impl Logger {
         self.handle
             .await
             .map_err(|err| anyhow::anyhow!("Log task failed: {err}"))
+    }
+}
+
+pub struct LogMessage {
+    pub step_name: String,
+    pub line: String,
+    pub is_error: bool,
+}
+
+impl LogMessage {
+    pub fn terminal_format(&self) -> String {
+        let name = format!("[{}]", self.step_name).bold().cyan();
+        let body = if self.is_error {
+            self.line.trim_end().red()
+        } else {
+            self.line.trim_end().white()
+        };
+        format!("{name} {body}")
     }
 }

@@ -51,12 +51,20 @@ impl StepRunner {
         loop {
             match self.execute_attempt(&log_tx, &token).await {
                 std::result::Result::Ok(_) => {
-                    return StepReport::success(step_name, timer.elapsed().as_millis() as u64);
+                    return StepReport::success(
+                        step_name,
+                        attempts,
+                        timer.elapsed().as_millis() as u64,
+                    );
                 }
                 std::result::Result::Err(err)
                     if token.is_cancelled() && err.to_string() == "Cancelled" =>
                 {
-                    return StepReport::cancelled(step_name, timer.elapsed().as_millis() as u64);
+                    return StepReport::cancelled(
+                        step_name,
+                        attempts,
+                        timer.elapsed().as_millis() as u64,
+                    );
                 }
                 std::result::Result::Err(err) => {
                     if attempts < self.step.max_retries && !token.is_cancelled() {
@@ -72,13 +80,17 @@ impl StepRunner {
                                 continue;
                             }
                             _ = token.cancelled() => {
-                                return StepReport::cancelled(step_name, timer.elapsed().as_millis() as u64);
+                                return StepReport::cancelled(step_name, attempts, timer.elapsed().as_millis() as u64);
                             }
                         }
                     }
 
                     token.cancel();
-                    return StepReport::failed(step_name, timer.elapsed().as_millis() as u64);
+                    return StepReport::failed(
+                        step_name,
+                        attempts,
+                        timer.elapsed().as_millis() as u64,
+                    );
                 }
             }
         }

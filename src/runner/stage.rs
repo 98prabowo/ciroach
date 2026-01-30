@@ -132,7 +132,7 @@ impl<'s> StageRunner<'s> {
                 if state.started.contains(&step.exploded_name) {
                     state
                         .reports
-                        .push(StepReport::failed(&step.exploded_name, 0));
+                        .push(StepReport::failed(&step.exploded_name, 0, 0));
                 } else {
                     state.reports.push(StepReport::skipped(&step.exploded_name));
                 }

@@ -1,6 +1,7 @@
 # Compiled
 /target
 /logs
+**/*.rs.bk
 
 # macOS
 .DS_Store

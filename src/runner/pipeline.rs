@@ -1,19 +1,16 @@
 use anyhow::Ok;
+use colored::Colorize;
 use futures_util::future::try_join_all;
 use tokio_util::sync::CancellationToken;
 
-use std::{
-    collections::HashSet,
-    path::PathBuf,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashSet, path::PathBuf, sync::Arc};
 
 use crate::{
     engine::DockerEngine,
     logger::Logger,
     models::{Pipeline, PipelineReport, Stage, StageReport, StepReport},
     runner::StageRunner,
+    ui::PreFlightUI,
 };
 
 pub struct PipelineRunner {
@@ -49,7 +46,8 @@ impl PipelineRunner {
                 continue;
             }
 
-            println!("🚀 Starting Stage: {}", stage.name);
+            println!("\n-- Stage: {} --", stage.name.to_uppercase().bold());
+
             self.pre_pull_images(stage).await?;
 
             let runner = StageRunner::new(stage, self.engine.clone(), &self.cwd, &self.user);
@@ -89,20 +87,34 @@ impl PipelineRunner {
             return Ok(());
         }
 
-        let start = Instant::now();
+        let ui = Arc::new(PreFlightUI::new(&unique_images));
 
-        let pull_tasks = unique_images.iter().map(|img| {
-            println!("🚚 Pre-pulling image: {}", img);
-            self.engine.pull_image(img)
+        let pull_tasks = unique_images.into_iter().map(|img| {
+            let engine = self.engine.clone();
+            let progress_ui = Arc::clone(&ui);
+
+            tokio::spawn(async move {
+                let img_clone = img.clone();
+                let finish_ui = Arc::clone(&progress_ui);
+
+                let result = engine
+                    .pull_image(&img, move |curr, tot| {
+                        progress_ui.update_progress(&img_clone, curr, tot);
+                    })
+                    .await;
+
+                match result {
+                    std::result::Result::Ok(_) => finish_ui.succeed_image(&img),
+                    std::result::Result::Err(_) => finish_ui.failed_image(&img),
+                }
+
+                result
+            })
         });
 
         try_join_all(pull_tasks).await?;
 
-        println!(
-            "📥 All images pulled in {:.2}s (Total images: {})",
-            start.elapsed().as_secs_f64(),
-            unique_images.len()
-        );
+        println!();
 
         Ok(())
     }

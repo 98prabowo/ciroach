@@ -25,7 +25,11 @@ impl DockerEngine {
         })
     }
 
-    pub async fn pull_image(&self, image: impl Into<String>) -> anyhow::Result<()> {
+    pub async fn pull_image(
+        &self,
+        image: impl Into<String>,
+        on_progress: impl Fn(u64, u64),
+    ) -> anyhow::Result<()> {
         let image_options = CreateImageOptionsBuilder::new()
             .from_image(&image.into())
             .build();
@@ -33,7 +37,12 @@ impl DockerEngine {
         let mut pull_stream = self.client.create_image(Some(image_options), None, None);
 
         while let Some(pull_result) = pull_stream.next().await {
-            pull_result?;
+            let info = pull_result?;
+            if let Some(detail) = info.progress_detail
+                && let (Some(current), Some(total)) = (detail.current, detail.total)
+            {
+                on_progress(current as u64, total as u64);
+            }
         }
 
         Ok(())
